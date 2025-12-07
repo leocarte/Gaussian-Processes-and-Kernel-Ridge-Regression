@@ -18,6 +18,7 @@ We use:
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from sklearn.model_selection import train_test_split, KFold
 from sklearn.metrics import mean_squared_error
@@ -365,7 +366,7 @@ def run_experiment_with_gp_and_krr(path, test_size=0.3, random_state=0):
     print("\nTuning GP hyperparameters by cross-validation (grid search)...")
     ell_grid = np.linspace(2, 4, 30)
     sigma_f_grid = np.linspace(1.2, 2, 30)
-    sigma_n_grid = np.logspace(-2, -1, 30)  
+    sigma_n_grid = np.logspace(-2, -1, 30)
 
     gp_cv_best, gp_cv_mse_cv = gp_cross_validation(
         X_train_s, y_train_s,
@@ -399,7 +400,7 @@ def run_experiment_with_gp_and_krr(path, test_size=0.3, random_state=0):
     # 3) Kernel ridge regression via CV
     # ===========================
     print("\nTuning Kernel Ridge Regression by cross-validation...")
-    lambd_grid = np.logspace(-4.5, -3.5, 30)     
+    lambd_grid = np.logspace(-4.5, -3.5, 30)
     ell_grid_krr = np.linspace(2, 4, 30)
     sigma_f_grid_krr = np.linspace(1.2, 2, 30)
 
@@ -499,6 +500,206 @@ def run_experiment_with_gp_and_krr(path, test_size=0.3, random_state=0):
 
 
 # -------------------------------------------------------------------
+# Plotting helpers
+# -------------------------------------------------------------------
+
+def _recompute_scalers(results):
+    """Recompute scalers (to go back to original scale) from stored train data."""
+    X_train = results["X_train"]
+    y_train = results["y_train"]
+    X_scaler = StandardScaler().fit(X_train)
+    y_mean = np.mean(y_train)
+    y_std = np.std(y_train)
+    if y_std == 0:
+        y_std = 1.0
+    return X_scaler, y_mean, y_std
+
+
+def plot_parity(results):
+    """
+    Parity plot: y_true vs y_pred for GP-ML, GP-CV, and KRR-CV (test set).
+    """
+    X_train_s = results["X_train_s"]
+    X_test_s = results["X_test_s"]
+    y_train_s = results["y_train_s"]
+    y_test = results["y_test"]
+
+    X_scaler, y_mean, y_std = _recompute_scalers(results)
+
+    # GP-ML predictions
+    gp_ml_params = results["gp_ml_params"]
+    gp_ml_mean_s, _ = gp_predict(
+        X_train_s, y_train_s, X_test_s,
+        gp_ml_params["ell"], gp_ml_params["sigma_f"], gp_ml_params["sigma_n"],
+        return_var=True,
+    )
+    gp_ml_mean = y_mean + y_std * gp_ml_mean_s
+
+    # GP-CV predictions
+    gp_cv_best = results["gp_cv_best"]
+    gp_cv_mean_s, _ = gp_predict(
+        X_train_s, y_train_s, X_test_s,
+        gp_cv_best["ell"], gp_cv_best["sigma_f"], gp_cv_best["sigma_n"],
+        return_var=True,
+    )
+    gp_cv_mean = y_mean + y_std * gp_cv_mean_s
+
+    # KRR-CV predictions
+    krr_best = results["krr_best"]
+    krr_model = krr_fit(
+        X_train_s, y_train_s,
+        krr_best["lambd"], krr_best["ell"], krr_best["sigma_f"],
+    )
+    krr_pred_s = krr_predict(krr_model, X_test_s)
+    krr_pred = y_mean + y_std * krr_pred_s
+
+    # Plot
+    plt.figure(figsize=(12, 4))
+    models = [
+        ("GP-ML", gp_ml_mean),
+        ("GP-CV", gp_cv_mean),
+        ("KRR-CV", krr_pred),
+    ]
+
+    for i, (name, y_pred) in enumerate(models, 1):
+        plt.subplot(1, 3, i)
+        plt.scatter(y_test, y_pred, alpha=0.7)
+        min_val = min(y_test.min(), y_pred.min())
+        max_val = max(y_test.max(), y_pred.max())
+        plt.plot([min_val, max_val], [min_val, max_val], linestyle="--")
+        plt.xlabel("True y (test)")
+        plt.ylabel("Predicted y")
+        plt.title(name)
+        plt.tight_layout()
+
+    plt.suptitle("Parity plot: true vs predicted on test set", y=1.02)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_metrics_bar(results):
+    """
+    Bar plot of test MSE and mean NLPD for each model.
+    """
+    models = ["GP-ML", "GP-CV", "KRR-CV"]
+    test_mse = [
+        results["gp_ml_test_mse"],
+        results["gp_cv_test_mse"],
+        results["krr_test_mse"],
+    ]
+    nlpd = [
+        results["gp_ml_test_nlpd"],
+        results["gp_cv_test_nlpd"],
+        np.nan,
+    ]
+
+    x = np.arange(len(models))
+
+    plt.figure(figsize=(8, 4))
+    plt.bar(x, test_mse)
+    plt.xticks(x, models)
+    plt.ylabel("Test MSE")
+    plt.title("Test MSE comparison")
+    plt.tight_layout()
+    plt.show()
+
+    plt.figure(figsize=(8, 4))
+    plt.bar(x[:2], nlpd[:2])  # only GP models have NLPD
+    plt.xticks(x[:2], models[:2])
+    plt.ylabel("Mean NLPD")
+    plt.title("Mean NLPD (GP models only)")
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_1d_slice(results, feature_index=0, n_points=200):
+    """
+    Plot a 1D slice along one input dimension:
+
+    - Fix all but one feature at the mean (in standardized space).
+    - Vary the chosen feature.
+    - Show GP-ML mean ± 2 std and KRR-CV curve, plus training points.
+    """
+    X_train = results["X_train"]
+    y_train = results["y_train"]
+    X_train_s = results["X_train_s"]
+    y_train_s = results["y_train_s"]
+
+    # Recover scalers to go back to original scale
+    X_scaler, y_mean, y_std = _recompute_scalers(results)
+
+    # Choose base point (mean of standardized X)
+    x0_s = X_train_s.mean(axis=0)
+    f = feature_index
+
+    # Range along this feature (standardized)
+    f_min = X_train_s[:, f].min()
+    f_max = X_train_s[:, f].max()
+    grid_f = np.linspace(f_min, f_max, n_points)
+
+    # Build grid in standardized space
+    X_grid_s = np.tile(x0_s, (n_points, 1))
+    X_grid_s[:, f] = grid_f
+
+    # Back to original x-axis for plotting
+    X_grid = X_scaler.inverse_transform(X_grid_s)
+    x_axis = X_grid[:, f]
+
+    # GP-ML predictions on grid
+    gp_ml_params = results["gp_ml_params"]
+    gp_ml_mean_s_grid, gp_ml_var_s_grid = gp_predict(
+        X_train_s, y_train_s, X_grid_s,
+        gp_ml_params["ell"], gp_ml_params["sigma_f"], gp_ml_params["sigma_n"],
+        return_var=True,
+    )
+    gp_ml_mean_grid = y_mean + y_std * gp_ml_mean_s_grid
+    gp_ml_std_grid = np.sqrt(gp_ml_var_s_grid) * y_std
+
+    # KRR-CV predictions on grid
+    krr_best = results["krr_best"]
+    krr_model = krr_fit(
+        X_train_s, y_train_s,
+        krr_best["lambd"], krr_best["ell"], krr_best["sigma_f"],
+    )
+    krr_pred_s_grid = krr_predict(krr_model, X_grid_s)
+    krr_pred_grid = y_mean + y_std * krr_pred_s_grid
+
+    # Training points projected on this feature
+    x_train_axis = X_train[:, f]
+    y_train_axis = y_train
+
+    plt.figure(figsize=(8, 5))
+    # GP mean and uncertainty band
+    plt.plot(x_axis, gp_ml_mean_grid, label="GP-ML mean")
+    plt.fill_between(
+        x_axis,
+        gp_ml_mean_grid - 2 * gp_ml_std_grid,
+        gp_ml_mean_grid + 2 * gp_ml_std_grid,
+        alpha=0.3,
+        label="GP-ML ± 2 std",
+    )
+    # KRR curve
+    plt.plot(x_axis, krr_pred_grid, linestyle="--", label="KRR-CV")
+
+    # Training data
+    plt.scatter(x_train_axis, y_train_axis, alpha=0.7, label="Train data")
+
+    plt.xlabel(f"Input feature {f} (original scale)")
+    plt.ylabel("Target y")
+    plt.title(f"1D slice along feature {f}")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+def make_all_plots(results):
+    """Convenience function to generate all plots."""
+    plot_parity(results)
+    plot_metrics_bar(results)
+    plot_1d_slice(results, feature_index=0)
+
+
+# -------------------------------------------------------------------
 # Script entry point
 # -------------------------------------------------------------------
 
@@ -506,3 +707,4 @@ if __name__ == "__main__":
     # Change this if the file is elsewhere
     DATA_PATH = "stock portfolio performance data set.xlsx"
     results = run_experiment_with_gp_and_krr(DATA_PATH)
+    make_all_plots(results)
