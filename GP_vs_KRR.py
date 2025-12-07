@@ -363,9 +363,9 @@ def run_experiment_with_gp_and_krr(path, test_size=0.3, random_state=0):
     # 2) GP hyperparameters via cross-validation
     # ===========================
     print("\nTuning GP hyperparameters by cross-validation (grid search)...")
-    ell_grid = np.linspace(2, 4, 50)
-    sigma_f_grid = np.linspace(1.2, 2, 50)
-    sigma_n_grid = np.logspace(-2, -1, 50)  
+    ell_grid = np.linspace(2, 4, 30)
+    sigma_f_grid = np.linspace(1.2, 2, 30)
+    sigma_n_grid = np.logspace(-2, -1, 30)  
 
     gp_cv_best, gp_cv_mse_cv = gp_cross_validation(
         X_train_s, y_train_s,
@@ -399,9 +399,9 @@ def run_experiment_with_gp_and_krr(path, test_size=0.3, random_state=0):
     # 3) Kernel ridge regression via CV
     # ===========================
     print("\nTuning Kernel Ridge Regression by cross-validation...")
-    lambd_grid = np.logspace(-4.5, -3.5, 50)     
-    ell_grid_krr = np.linspace(2, 4, 50)
-    sigma_f_grid_krr = np.linspace(1.2, 2, 50)
+    lambd_grid = np.logspace(-4.5, -3.5, 30)     
+    ell_grid_krr = np.linspace(2, 4, 30)
+    sigma_f_grid_krr = np.linspace(1.2, 2, 30)
 
     krr_best, krr_best_mse_cv = krr_cross_validation(
         X_train_s, y_train_s,
