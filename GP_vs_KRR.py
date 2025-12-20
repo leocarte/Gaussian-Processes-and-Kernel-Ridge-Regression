@@ -747,7 +747,7 @@ def plot_parity(results, save_path=None):
     ax2.set_title("Differences relative to GP-ML")
     ax2.legend()
 
-    fig.suptitle("Test set diagnostics without redundant panels", y=1.02)
+    fig.suptitle("Test set diagnostics", y=1.02)
     fig.tight_layout()
 
     if save_path is not None:
