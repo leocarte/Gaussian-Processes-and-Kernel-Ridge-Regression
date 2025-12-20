@@ -653,18 +653,17 @@ def _recompute_scalers(results):
 
 def plot_parity(results, save_path=None):
     """
-    Parity plot: true vs predicted on the test set.
+    Compact parity plot that avoids 4 near-identical panels:
 
-    Shows all four fitted approaches:
-      - GP-ML
-      - GP-CV (select NLPD)
-      - GP-CV (select MSE)
-      - KRR-CV
+    Left:  parity plot overlaying all methods.
+    Right: prediction differences relative to a baseline (GP-ML).
+
+    This makes small but real discrepancies visible.
     """
     X_train_s = results["X_train_s"]
-    X_test_s = results["X_test_s"]
+    X_test_s  = results["X_test_s"]
     y_train_s = results["y_train_s"]
-    y_test = results["y_test"]
+    y_test    = results["y_test"]
 
     # scalers to go back to original y scale
     _, y_mean, y_std = _recompute_scalers(results)
@@ -712,27 +711,50 @@ def plot_parity(results, save_path=None):
         ("KRR-CV", krr_pred),
     ]
 
+    # Global parity bounds
     global_min = float(min(np.min(y_test), *(np.min(m[1]) for m in models)))
     global_max = float(max(np.max(y_test), *(np.max(m[1]) for m in models)))
 
-    fig = plt.figure(figsize=(10, 8))
-    for i, (name, y_pred) in enumerate(models, 1):
-        ax = fig.add_subplot(2, 2, i)
-        ax.scatter(y_test, y_pred, alpha=0.7)
-        ax.plot([global_min, global_max], [global_min, global_max], linestyle="--")
-        ax.set_xlim(global_min, global_max)
-        ax.set_ylim(global_min, global_max)
-        ax.set_xlabel("True normalized annual return")
-        ax.set_ylabel("Predicted normalized annual return")
-        ax.set_title(name)
+    # Figure: overlay parity + deltas
+    fig = plt.figure(figsize=(12, 5))
 
-    fig.suptitle("Parity plot: true vs predicted on test set", y=1.02)
+    # ---- Left: overlay parity ----
+    ax1 = fig.add_subplot(1, 2, 1)
+    markers = ["o", "s", "^", "D"]
+
+    for (name, y_pred), mk in zip(models, markers):
+        ax1.scatter(y_test, y_pred, alpha=0.75, marker=mk, label=name)
+
+    ax1.plot([global_min, global_max], [global_min, global_max], linestyle="--")
+    ax1.set_xlim(global_min, global_max)
+    ax1.set_ylim(global_min, global_max)
+    ax1.set_xlabel("True normalized annual return")
+    ax1.set_ylabel("Predicted normalized annual return")
+    ax1.set_title("Parity (all methods overlaid)")
+    ax1.legend()
+
+    # ---- Right: deltas vs baseline (GP-ML) ----
+    ax2 = fig.add_subplot(1, 2, 2)
+    baseline = gp_ml_mean
+
+    for (name, y_pred), mk in zip(models[1:], markers[1:]):  # skip baseline itself
+        delta = y_pred - baseline
+        ax2.scatter(y_test, delta, alpha=0.75, marker=mk, label=f"{name} − GP-ML")
+
+    ax2.axhline(0.0, linestyle="--")
+    ax2.set_xlabel("True normalized annual return")
+    ax2.set_ylabel("Prediction difference")
+    ax2.set_title("Differences relative to GP-ML")
+    ax2.legend()
+
+    fig.suptitle("Test set diagnostics without redundant panels", y=1.02)
     fig.tight_layout()
 
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
 
     plt.show()
+
 
 
 def plot_1d_slice(results, feature_index=0, feature_names=None,
