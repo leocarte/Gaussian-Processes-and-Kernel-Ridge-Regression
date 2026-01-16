@@ -1,7 +1,7 @@
 ## Gaussian Processes and Kernel Ridge Regression
 
 ### Credits
-- Done as part of Statistical Machine Learning Course (MATH 412) - EPFL 2025 Autumn Offering
+- Done as part of Statistical Machine Learning Course (MATH-412) - EPFL 2025 Autumn Offering
 
 ### Team
 - Leonardo Cartesegna
@@ -183,8 +183,6 @@ Returns:
 Loads the **"all period"** sheet and builds:
 - X: (n, 6) array of portfolio concept weights (columns starting with "the weight")
 - y: (n,) array of normalized Annual Return
-
-Rows with missing values are dropped.
 
 Returns:
 - X, y as numpy arrays.
